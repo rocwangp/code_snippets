@@ -19,6 +19,24 @@ struct contains<T, U, Args...>
 { };
 
 
+        template <typename T, typename ... Args>
+        struct contain
+        {
+            static constexpr auto value = std::false_type{};
+        };
+
+        template <typename T, typename... Args>
+        struct contain<T, T, Args...>
+        {
+            static constexpr auto value = std::true_type{};
+        };
+
+        template <typename T, typename U, typename... Args>
+        struct contain<T, U, Args...>
+        {
+            static constexpr auto value = contain<T, Args...>::value;
+        };
+
 struct Type {};
 
 template <typename T, typename... Args>
