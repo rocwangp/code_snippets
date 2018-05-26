@@ -7,91 +7,98 @@
 #include <tuple>
 #include <functional>
 
+template <typename R, typename... Args>
+struct function_traits_helper
+{
+    static constexpr auto param_count = sizeof...(Args);
+    using return_type = R;
+
+    template <std::size_t N>
+    using param_type = std::tuple_element_t<N, std::tuple<Args...>>;
+};
+
 template <typename T>
 struct function_traits;
 
-template <typename ClassType, typename R, typename... Args>
-struct function_traits<R(ClassType::*)(Args...)>
-{
-    using return_type = R;
-    static constexpr std::size_t param_count = sizeof...(Args);
-    static constexpr std::size_t traits_number = 0;
-
-    template <std::size_t N>
-    using param_type = std::tuple_element_t<N, std::tuple<Args...>>;
-};
-
-template <typename ClassType, typename R, typename... Args>
-struct function_traits<R(ClassType::*)(Args...) const>
-{
-    using return_type = R;
-    static constexpr std::size_t param_count = sizeof...(Args);
-    static constexpr std::size_t traits_number = 1;
-
-    template <std::size_t N>
-    using param_type = std::tuple_element_t<N, std::tuple<Args...>>;
-};
-
+// int(*)(int, int)
 template <typename R, typename... Args>
-struct function_traits<R(Args...)>
+struct function_traits<R(*)(Args...)> : public function_traits_helper<R, Args...>
 {
-    using return_type = R;
-    static constexpr std::size_t param_count = sizeof...(Args);
-    static constexpr std::size_t traits_number = 2;
-
-    template <std::size_t N>
-    using param_type = std::tuple_element_t<N, std::tuple<Args...>>;
 };
 
+// int(&)(int, int)
 template <typename R, typename... Args>
-struct function_traits<R(Args...) const>
+struct function_traits<R(&)(Args...)> : public function_traits_helper<R, Args...>
 {
-    using return_type = R;
-    static constexpr std::size_t param_count = sizeof...(Args);
-    static constexpr std::size_t traits_number = 3;
-
-    template <std::size_t N>
-    using param_type = std::tuple_element_t<N, std::tuple<Args...>>;
 };
 
+// int(int, int)
+template <typename R, typename... Args>
+struct function_traits<R(Args...)> : public function_traits_helper<R, Args...>
+{
+};
 
+// int(int, int) const
+template <typename R, typename... Args>
+struct function_traits<R(Args...) const> : public function_traits_helper<R, Args...>
+{
+};
+
+// int(main()::<lambda(int, int)>*)(int, int)
+// int(std::funciton<int(int, int)>)(int, int)
+template <typename ClassType, typename R, typename... Args>
+struct function_traits<R(ClassType::*)(Args...)> : public function_traits_helper<R, Args...>
+{
+    using class_type = ClassType;
+};
+
+// int(main()::<lambda(int, int)>*)(int, int) const
+// int(std::funciton<int(int, int)>)(int, int) const
+template <typename ClassType, typename R, typename... Args>
+struct function_traits<R(ClassType::*)(Args...) const> : public function_traits_helper<R, Args...>
+{
+    using class_type = ClassType;
+};
+
+// 对函数对象进行operator()展开
+// main()::<lambda(int, int)>
+// std::function<int(int, int)>
 template <typename T>
-struct function_traits : public function_traits<decltype(&T::operator())>
-{
-};
+struct function_traits : public function_traits<decltype(&T::operator())> {};
 
-int func(int, std::string) { return 1; }
-
-/* 作为模板参数传递时，函数类型转换为函数指针类型，所以需要单独特化 */
-template <typename Function>
-void get_function_type_and_arg(Function) {
-    std::cout << typeid(Function).name() << std::endl;
-    std::cout << "traits_number is: " << function_traits<Function>::traits_number << std::endl;
-    std::cout << "argument count is: " << function_traits<Function>::param_count << std::endl;
-    std::cout << "return type is same: "
-              << std::is_same_v<int,
-                                typename function_traits<Function>::return_type> << std::endl;
-    std::cout << "argument type is same: "
-              << std::is_same_v<std::string,
-                                typename function_traits<Function>::template param_type<1>> << std::endl;
+template <typename Func>
+void traits_test(Func&&) {
+    using function_t = function_traits<Func>;
+    std::cout << function_t::param_count << std::endl;
 }
+
+int pointer_func(int a, int b) {
+    return a + b;
+}
+
 
 int main()
 {
-    std::cout << typeid(decltype(func)).name() << std::endl;
-    std::cout << "traits_number is: " << function_traits<decltype(func)>::traits_number << std::endl;
-    std::cout << "argument count is: " << function_traits<decltype(func)>::param_count << std::endl;
-    std::cout << "return type is same: "
-              << std::is_same_v<int,
-                                typename function_traits<decltype(func)>::return_type> << std::endl;
-    std::cout << "argument type is same: "
-              << std::is_same_v<std::string,
-                                typename function_traits<decltype(func)>::template param_type<1>> << std::endl;
-    /* 调用函数指针类型的特化版本 */
-    std::cout << "\n\n";
-    get_function_type_and_arg([](int, std::string) { return "hello world"; });
+    // Func =  main()::<lambda(int, int)>
+    // Func::operator() = int (main()::<lambda(int, int)*)(int, int)
+    auto func = [](int a, int b) { return a + b; };
+    traits_test(std::move(func));
+
+    traits_test([](int a, int b) { return a + b; });
+
+    // Func = int(int, int)
+    using function_t = function_traits<decltype(pointer_func)>;
+    std::cout << function_t::param_count << std::endl;
+
+    // Func = int(&)(int, int) or Func = int(*)(int, int)
+    traits_test(pointer_func);
+
+    // Func = std::function<int(int, int)> const;
+    // Func::opeartor() = int (std::function<int(int, int)>*)(int, int) const
+    std::function<int(int, int)> f = std::bind(pointer_func, std::placeholders::_1, std::placeholders::_2);
+    traits_test(f);
+
     return 0;
 }
-
 
 
