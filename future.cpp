@@ -1,6 +1,8 @@
 #include <memory>
 #include <iostream>
 #include <functional>
+#include <vector>
+#include <iterator>
 
 template <typename T>
 class Try {
@@ -10,9 +12,9 @@ public:
 
     Try(Try&& t) noexcept : result_(std::move(t.result_)) {}
 
-    Try& operator=(Try&& t) noexcept { result_ = std::move(t.result_); }
+    Try& operator=(Try&& t) noexcept { result_ = std::move(t.result_); return *this; }
 
-    T&& result() && noexcept  { return std::move(result_); }
+    T&& result() noexcept  { return std::move(result_); }
 private:
     T result_;
 };
@@ -42,7 +44,7 @@ public:
 
     Core(Core&& core) noexcept : state_(core.state_), result_(std::move(core.result_)), callback_(std::move(core.callback_)) {}
 
-    const Result& result() const { return result_; }
+    Result&& result() noexcept { return std::move(result_); }
 
     void set_callback(Callback callback) noexcept {
         callback_ = std::move(callback);
@@ -70,7 +72,7 @@ private:
     Callback callback_;
 };
 
-class FutureUnit {
+class __FutureUnit {
 
 };
 
@@ -83,23 +85,27 @@ public:
     Future(Future&& f) noexcept : core_(std::move(f.core_)) {}
 
     template <typename Func>
-    Future<std::invoke_result_t<Func, T>> then(Func&& func) {
-        // std::cout << typeid(decltype(func)).name() << std::endl;
-        using result_type = std::invoke_result_t<Func, T>;
-        // using result_type  = int;
-        Future<result_type> future;
-        get_core()->set_callback([core = future.get_core(), f = std::forward<Func>(func)](Try<T>&& t) mutable {
-            core->set_try(make_try(f(std::move(t).result())));
-        });
-        return future;
+    auto then(Func&& func) {
+        if constexpr (!std::is_same_v<T, __FutureUnit>)  {
+            using result_type = std::invoke_result_t<Func, T>;
+            Future<result_type> future;
+            get_core()->set_callback([core = future.get_core(), f = std::forward<Func>(func)](Try<T>&& t) mutable {
+                core->set_try(make_try(f(std::move(t).result())));
+            });
+            return future;
+        }
+        else {
+            using result_type = std::invoke_result_t<Func>;
+            Future<result_type> future;
+            get_core()->set_callback([core = future.get_core(), f = std::forward<Func>(func)](Try<T>&& t) mutable {
+                core->set_try(make_try(f()));
+            });
+            return future;
+        }
     }
 
-    const T& get() & const {
+    T&& get() noexcept {
         return (core_->result().result());
-    }
-
-    T&& get() && {
-        return std::move(core_->result().result());
     }
 
     std::shared_ptr<Core<T>> get_core() const { return core_; }
@@ -112,20 +118,23 @@ static Future<T> make_future(T&& t) {
     return Future<T>(Core<T>(make_try(std::forward<T>(t))));
 }
 
-static Future<FutureUnit> make_future() {
-    return make_future(FutureUnit{});
+static Future<__FutureUnit> make_future() {
+    return make_future(__FutureUnit{});
 }
 
 int main() {
     auto future1 = make_future();
-    auto future2 = future1.then([](FutureUnit unit) -> int {  
-            std::cout << "in callback1\n"; 
-            return 10;  
-    }).then([](int n) -> std::string { 
+    auto future2 = future1.then([]() {  
+        std::cout << "in callback1\n"; 
+        return 10;  
+    }).then([](int&& n) { 
         std::cout << "in callback2 with n: " << n << "\n"; 
-        return "hello world";
-    }).then([](std::string s) {
+        return std::string("hello world");
+    }).then([](std::string&& s) {
         std::cout << s << std::endl;
+        return std::vector<int> { 1, 2, 3, 4, 5 };
+    }).then([](std::vector<int>&& nums) {
+        std::copy(nums.begin(), nums.end(), std::ostream_iterator<int>(std::cout, "\n"));
         return 100;
     });
     auto result = future2.get();
