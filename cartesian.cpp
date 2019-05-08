@@ -16,21 +16,21 @@ namespace detail {
         return (std::forward<Func>(f)(std::get<Idx>(std::forward<Tuple>(t)), Idx), ...);
     }
 
-    template <size_t N, size_t M, typename T, typename ... Args>
+    template <size_t N, typename T, typename ... Args>
     constexpr auto one_line_impl(const T& value, const std::tuple<Args...>& t) {
-        if constexpr (N + 1 == M) {
+        if constexpr (N + 1 == sizeof...(Args)) {
             return std::make_tuple(value * std::get<N>(t));
         }
         else {
             static_assert(std::is_integral_v<std::decay_t<T>> && std::is_integral_v<std::decay_t<std::tuple_element_t<N, std::tuple<Args...>>>>);
-            return std::tuple_cat(std::make_tuple(value * std::get<N>(t)), one_line_impl<N + 1, M>(value, t));
+            return std::tuple_cat(std::make_tuple(value * std::get<N>(t)), one_line_impl<N + 1>(value, t));
         }
     }
 
     template <typename T, typename ... Args>
     constexpr auto one_line(const T& left, const std::tuple<Args...>& t) {
         static_assert(sizeof...(Args) > 0);
-        return one_line_impl<0, sizeof...(Args)>(left, t);
+        return one_line_impl<0>(left, t);
     }
 
     template <size_t N, typename ... Args1, typename ... Args2>
